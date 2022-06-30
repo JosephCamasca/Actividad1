@@ -1,8 +1,12 @@
 USE master
+go
+
 DROP DATABASE IF EXISTS actividadbd
 go
+
 CREATE DATABASE actividadbd
 go
+
 USE actividadbd
 go
 --******************************************************************
@@ -36,6 +40,7 @@ go
 CREATE TABLE producto(
 	id_producto int primary key IDENTITY  ,
 	id_categoria int,
+	codigo varchar (20),
 	nombre_pro varchar(30)  ,
 	descripcion varchar(50) ,
 	stock int  ,
@@ -122,11 +127,11 @@ values
 	('lacteos',1),
 	('bebidas',1);
 go
-insert into producto (id_categoria,nombre_pro,descripcion,stock,precio_compra,precio_venta,estado)
+insert into producto (id_categoria,codigo,nombre_pro,descripcion,stock,precio_compra,precio_venta,estado)
 values
-	(1,'frejol', 'frejol',15,10.50,12.50,1),
-	(2,'leche', 'leche',20,10.50,15.50,1),
-	(3,'Coca Cola', 'Coca Cola 3L',30,12.50,15.50,1)
+	(1,'CE02','frejol', 'frejol',15,10.50,12.50,1),
+	(2,'CE03','leche', 'leche',20,10.50,15.50,1),
+	(3,'CE04','Coca Cola', 'Coca Cola 3L',30,12.50,15.50,1)
 go
 insert into venta (id_usuario,tipo_documento,numero_documento,documento_cliente,nombre_cliente,monto_pago,monto_cambio, monto_total)
 values
@@ -283,6 +288,199 @@ begin
 		set @resultado = 1 
 	end
 end
+go
+-- -------------------------------------------------------------
+--	CREAMOS LOS PROCEDIMIENTOS PARA EL CRUD DE LA TABLA CATEGORIA
+-- -------------------------------------------------------------
+-- -------------------------------------------------------------
+--	1.Procedimiento para insertar categoria.
+-- -------------------------------------------------------------
+-- -------------------------------------------------------------
+DROP PROCEDURE IF EXISTS insertar_categoria
+go
+CREATE PROCEDURE insertar_categoria(
+@descripcion varchar (100),
+@estado bit, 
+@resultado int output,
+@mensaje varchar(500) output
+)
+as
+begin
+	set @resultado = 0
+	set @mensaje = ''
+
+	if not exists (select * from categoria where descripcion = @descripcion)
+	begin
+		insert into categoria(descripcion,estado) values
+		(@descripcion,@estado)
+		set @resultado = SCOPE_IDENTITY()
+		
+	end
+	else
+		set @mensaje = 'Solo se puede registrar una sola vez la categoria'
+
+end
+go
+-- -------------------------------------------------------------
+-- -------------------------------------------------------------
+--	2.Procedimiento para modificar la categoria.
+-- -------------------------------------------------------------
+-- -------------------------------------------------------------
+DROP PROCEDURE IF EXISTS modificar_categoria
+go
+Create procedure modificar_categoria(
+@id_categoria int,
+@descripcion varchar(50),
+@estado bit,
+@resultado bit output,
+@mensaje varchar(500) output
+)
+as
+begin
+	SET @resultado = 1
+	IF NOT EXISTS (SELECT * FROM categoria WHERE descripcion =@descripcion and id_categoria != @id_categoria)
+		update categoria set
+		descripcion = @descripcion,
+		estado = @estado
+		where id_categoria = @id_categoria
+	ELSE
+	begin
+		SET @resultado = 0
+		set @mensaje = 'No se puede repetir la descripcion de una categoria'
+	end
+
+end
+
+go
+-- -------------------------------------------------------------
+-- -------------------------------------------------------------
+--	2.Procedimiento para eliminar la categoria.
+-- -------------------------------------------------------------
+-- -------------------------------------------------------------
+DROP PROCEDURE IF EXISTS eliminar_categoria
+go
+create procedure eliminar_categoria(
+@id_categoria int,
+@resultado bit output,
+@mensaje varchar(500) output
+)
+as
+begin
+	SET @resultado = 1
+	IF NOT EXISTS (
+	 select *  from categoria c
+	 inner join producto p on p.id_categoria = c.id_categoria
+	 where c.id_categoria = @id_categoria
+	)
+	begin
+	 delete top(1) from categoria where id_categoria = @id_categoria
+	end
+	ELSE
+	begin
+		SET @resultado = 0
+		set @mensaje = 'La categoria se encuentara relacionada a un producto'
+	end
+
+end
+
+GO
+-- -------------------------------------------------------------
+--	CREAMOS LOS PROCEDIMIENTOS PARA EL CRUD DE LA TABLA PRODUCTO
+-- -------------------------------------------------------------
+-- -------------------------------------------------------------
+--	1.Procedimiento para insertar producto.
+-- -------------------------------------------------------------
+-- -------------------------------------------------------------
+DROP PROCEDURE IF EXISTS insertar_producto
+go
+create PROC insertar_producto(
+@id_categoria int,
+@codigo varchar(20),
+@nombre_pro varchar(30),
+@descripcion varchar(30),
+@stock int,
+@precio_compra decimal(10,2),
+@precio_venta decimal(10,2),
+@estado bit,
+@resultado int output,
+@mensaje varchar(500) output
+)as
+begin
+	SET @resultado = 0
+	IF NOT EXISTS (SELECT * FROM producto WHERE codigo = @codigo)
+	begin
+		insert into producto(id_categoria,codigo,nombre_pro,descripcion,stock,precio_compra,precio_venta,estado) values (@id_categoria,@codigo,@nombre_pro,@descripcion,@stock,@precio_compra,@precio_venta,@estado)
+		set @resultado = SCOPE_IDENTITY()
+	end
+	ELSE
+	 SET @mensaje = 'Ya existe un producto con el mismo codigo' 
+	
+end
+
+GO
+
+-- -------------------------------------------------------------
+--	CREAMOS LOS PROCEDIMIENTOS PARA EL CRUD DE LA TABLA VENTA
+-- -------------------------------------------------------------
+-- -------------------------------------------------------------
+--	1.Procedimiento para registrar venta.
+-- -------------------------------------------------------------
+-- -------------------------------------------------------------
+CREATE TYPE [dbo].[EDetalle_Venta] AS TABLE(
+	[id_producto] int NULL,
+	[precio_venta] decimal(10,2) NULL,
+	[cantidad] int NULL,
+	[sub_total] decimal(10,2) NULL
+)
+
+
+GO
+
+DROP PROCEDURE IF EXISTS registrar_venta
+go
+create procedure registrar_venta(
+@id_usuario int,
+@tipo_documento varchar(50),
+@numero_documento varchar(50),
+@documento_cliente varchar(50),
+@nombre_cliente varchar(50),
+@monto_pago decimal(10,2),
+@monto_cambio decimal(10,2),
+@monto_total decimal(10,2),
+@detalle_venta [EDetalle_Venta] READONLY,                                      
+@resultado bit output,
+@mensaje varchar(500) output
+)
+as
+begin
+	
+	begin try
+
+		declare @id_venta int = 0
+		set @resultado = 1
+		set @mensaje = ''
+
+		begin  transaction registro
+
+		insert into venta(id_usuario,tipo_documento,numero_documento,documento_cliente,nombre_cliente,monto_pago,monto_cambio,monto_total)
+		values(@id_usuario,@tipo_documento,@numero_documento,@documento_cliente,@nombre_cliente,@monto_pago,@monto_cambio,@monto_total)
+
+		set @id_venta = SCOPE_IDENTITY()
+
+		insert into detalle_venta(id_venta,id_producto,precio_venta,cantidad,sub_total)
+		select @id_venta,id_producto,precio_venta,cantidad,sub_total from @detalle_venta
+
+		commit transaction registro
+
+	end try
+	begin catch
+		set @resultado = 0
+		set @mensaje = ERROR_MESSAGE()
+		rollback transaction registro
+	end catch
+
+end
+
 go
 
 -- -------------------------------------------------------------
